@@ -497,12 +497,37 @@ def build_job_body(client: PAIClient, config: dict[str, Any]) -> tuple[dict[str,
         steps.append(f"instanceType '{config['instanceType']}' -> instanceTypeInfo.id")
 
     resource_pool_id: int | None = None
+    pools = client.resource_pools(cluster_id)
     if config.get("resourcePoolName"):
-        pools = client.resource_pools(cluster_id)
         pool = match_row(pools, config["resourcePoolName"], ["name"])
         resource_pool_id = int(pool.get("id") or pool.get("resourcePoolId"))
-        body["resourcePoolId"] = resource_pool_id
         steps.append(f"resource pool '{config['resourcePoolName']}' -> resourcePoolId={resource_pool_id}")
+    elif cloud == "aliyun" and config.get("specName"):
+        # The PAI create-job API currently requires resourcePoolId. Match the
+        # selected GPU type to a pool automatically when the user omitted it.
+        gpu_type = str(config["specName"]).strip()
+        matching_pools = [
+            row for row in pools
+            if str(row.get("gpuType") or "").strip() == gpu_type
+        ]
+        if len(matching_pools) != 1:
+            available = [
+                f"{row.get('name')} (gpuType={row.get('gpuType')}, id={row.get('id')})"
+                for row in pools
+            ]
+            raise PAIError(
+                f"Cannot infer a unique resource pool for GPU type {gpu_type!r}. "
+                "Set resourcePoolName explicitly. Available: " + "; ".join(available)
+            )
+        pool = matching_pools[0]
+        resource_pool_id = int(pool.get("id") or pool.get("resourcePoolId"))
+        steps.append(
+            f"resource pool inferred from GPU type {gpu_type!r} -> "
+            f"resourcePoolId={resource_pool_id} ({pool.get('name')})"
+        )
+
+    if resource_pool_id is not None:
+        body["resourcePoolId"] = resource_pool_id
 
     if config.get("projectName"):
         projects = client.projects()

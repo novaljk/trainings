@@ -19,7 +19,7 @@ imageName: pytorch:2.6.0-gpu-py310-cu126-ubuntu24.04-accl
 specName: NVIDIA-RTX4090
 gpuCount: 1
 # cpuCount: 16
-# resourcePoolName: <resource-pool-name>
+# resourcePoolName: RTX4090-Group1   # optional; inferred from specName when omitted
 # projectName: <project-name>
 maxRunTime: 120
 errorMonitor: true
@@ -60,6 +60,6 @@ storageMountList:
     readOnly: true
 
   - storageName: tars-data-platform-software
-    fileSystemPath: /minimind/runs/<job-name>/
+    fileSystemPath: /minimind/runs/minimind-pretrain-20260904/
     mountPath: /mnt/run
     readOnly: false
