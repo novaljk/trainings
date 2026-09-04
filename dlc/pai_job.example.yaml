@@ -1,22 +1,22 @@
-# Example TARS PAI job definition for minimind.
+# Example TARS PAI job definition for minimind using GitHub as the code source.
 #
 # First use the CLI to discover available names:
 #   python infra/pai_submit.py list-clusters
-#   python infra/pai_submit.py list-images --cluster-name <cluster>
-#   python infra/pai_submit.py list-gpu-types --cluster-id <id>
-#   python infra/pai_submit.py list-storages --cluster-name <cluster>
+#   python infra/pai_submit.py list-images --cluster-name 集群1
+#   python infra/pai_submit.py list-gpu-types --cluster-id 1
+#   python infra/pai_submit.py list-storages --cluster-name 集群1
 #
-# Then copy this file to dlc/pai_job.yaml, fill real names, and run:
+# Then copy this file to dlc/pai_job.yaml, adjust the image/resources, and run:
 #   python infra/pai_submit.py submit --config dlc/pai_job.yaml --dry-run
 #   python infra/pai_submit.py submit --config dlc/pai_job.yaml
 
-jobName: minimind-pretrain-20260903
+jobName: minimind-pretrain-20260904
 clusterName: 集群1
-# runId: minimind-20260903-001   # optional output run id; defaults to jobName
+# runId: minimind-20260904-001   # optional output run id; defaults to jobName
 priority: 9
 podCount: 1
-imageName: <registered-minimind-image>
-specName: NVIDIA-RTX4090      # Aliyun clusters
+imageName: pytorch:2.6.0-gpu-py310-cu126-ubuntu24.04-accl
+specName: NVIDIA-RTX4090
 gpuCount: 1
 # cpuCount: 16
 # resourcePoolName: <resource-pool-name>
@@ -24,8 +24,20 @@ gpuCount: 1
 maxRunTime: 120
 errorMonitor: true
 
-# The image must be built from this repository. The launcher is fixed at
-# /app/dlc/train.sh inside that image.
+# Pull code from GitHub at task startup. The repository is public, so no Git
+# credentials are embedded in the PAI command. The code is cached under the
+# writable run mount and reset to origin/main on every restart.
+source:
+  type: git
+  url: https://github.com/novaljk/trainings.git
+  branch: main
+  depth: 1
+  codeDir: /mnt/run/code
+  python: python3
+  installRequirements: true
+  requirementsPath: requirements.txt
+  pipIndexUrl: https://mirrors.aliyun.com/pypi/simple
+
 train:
   stage: pretrain               # pretrain or sft
   DATA_ROOT: /mnt/data

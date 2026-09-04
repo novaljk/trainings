@@ -5,6 +5,9 @@ The API contract is adapted from the company-internal PAI tool. This standalone
 CLI does not depend on tars_platform; it authenticates directly with TARS and
 resolves human-readable names in a job YAML to PAI ids.
 
+Default code source:
+    https://github.com/novaljk/trainings.git (main) -> /mnt/run/code
+
 Default dataset/output mounts:
     dataset: oss://tars-data-platform-software/dataset/minimind/ -> /mnt/data
     output:  oss://tars-data-platform-software/minimind/runs/<jobName>/ -> /mnt/run
@@ -48,13 +51,15 @@ DEFAULT_RUN_STORAGE_NAME = "tars-data-platform-software"
 DEFAULT_RUN_FILE_SYSTEM_PATH_PREFIX = "/minimind/runs/"
 DEFAULT_RUN_MOUNT_PATH = "/mnt/run"
 
-# minimind's PAI-mountable OSS storage on cluster 1.
-DEFAULT_DATA_STORAGE_NAME = "tars-data-platform-software"
-DEFAULT_DATA_FILE_SYSTEM_PATH = "/dataset/minimind/"
-DEFAULT_DATA_MOUNT_PATH = "/mnt/data"
-DEFAULT_RUN_STORAGE_NAME = "tars-data-platform-software"
-DEFAULT_RUN_FILE_SYSTEM_PATH_PREFIX = "/minimind/runs/"
-DEFAULT_RUN_MOUNT_PATH = "/mnt/run"
+# GitHub source defaults. The repository is public, so no credentials are put
+# into the generated PAI command.
+DEFAULT_SOURCE_TYPE = "git"
+DEFAULT_GIT_URL = "https://github.com/novaljk/trainings.git"
+DEFAULT_GIT_BRANCH = "main"
+DEFAULT_GIT_DEPTH = 1
+DEFAULT_CODE_DIR = "/mnt/run/code"
+DEFAULT_PYTHON = "python3"
+DEFAULT_PIP_INDEX_URL = "https://mirrors.aliyun.com/pypi/simple"
 
 
 class PAIError(RuntimeError):
@@ -310,12 +315,103 @@ def build_train_command(config: dict[str, Any]) -> str:
         if value is not None:
             values.append(f"{key}={shlex.quote(str(value))}")
 
-    for key in ("DATA_PATH", "EPOCHS", "BATCH_SIZE", "LEARNING_RATE", "HIDDEN_SIZE", "NUM_HIDDEN_LAYERS", "MAX_SEQ_LEN", "SAVE_INTERVAL", "ACCUMULATION_STEPS"):
+    for key in (
+        "DATA_PATH",
+        "EPOCHS",
+        "BATCH_SIZE",
+        "LEARNING_RATE",
+        "HIDDEN_SIZE",
+        "NUM_HIDDEN_LAYERS",
+        "MAX_SEQ_LEN",
+        "SAVE_INTERVAL",
+        "ACCUMULATION_STEPS",
+    ):
         if key in train and train[key] is not None:
             values.append(f"{key}={shlex.quote(str(train[key]))}")
 
-    return "env " + " ".join(values) + " /app/dlc/train.sh"
+    source = config.get("source")
+    if isinstance(source, str):
+        try:
+            source = yaml.safe_load(source)
+        except yaml.YAMLError as exc:
+            raise PAIError(f"Invalid source YAML: {exc}") from exc
+    if source is None:
+        source = {}
 
+    if not isinstance(source, dict):
+        raise PAIError("Job YAML source section must be a mapping")
+
+    source_type = str(source.get("type") or DEFAULT_SOURCE_TYPE).strip().lower()
+    if source_type not in {"git", "image"}:
+        raise PAIError(f"Unsupported source.type: {source_type}. Use git or image")
+
+    if source_type == "image":
+        return "env " + " ".join(values) + " /app/dlc/train.sh"
+
+    git_url = str(source.get("url") or DEFAULT_GIT_URL).strip()
+    branch = str(source.get("branch") or DEFAULT_GIT_BRANCH).strip()
+    depth = int(source.get("depth") or DEFAULT_GIT_DEPTH)
+    code_dir = str(source.get("codeDir") or DEFAULT_CODE_DIR).strip()
+    python = str(source.get("python") or DEFAULT_PYTHON).strip()
+    install_requirements = bool(source.get("installRequirements", True))
+    requirements_path = str(source.get("requirementsPath") or "requirements.txt").strip()
+    pip_index_url = str(source.get("pipIndexUrl") or DEFAULT_PIP_INDEX_URL).strip()
+
+    if not git_url:
+        raise PAIError("Git source requires url")
+    if not branch:
+        raise PAIError("Git source requires branch")
+    if depth < 1:
+        raise PAIError("Git source depth must be at least 1")
+    if not code_dir.startswith("/"):
+        raise PAIError("Git source codeDir must be an absolute path")
+    if code_dir == "/":
+        raise PAIError("Git source codeDir cannot be /")
+
+    q_git_url = shlex.quote(git_url)
+    q_branch = shlex.quote(branch)
+    q_code_dir = shlex.quote(code_dir)
+    q_python = shlex.quote(python)
+    q_requirements = shlex.quote(requirements_path)
+    q_pip_index = shlex.quote(pip_index_url)
+    q_train_sh = shlex.quote(f"{code_dir.rstrip('/')}/dlc/train.sh")
+
+    q_git_dir = shlex.quote(code_dir.rstrip("/") + "/.git")
+    lines = [
+        "set -Eeuo pipefail",
+        "command -v git >/dev/null",
+        f"mkdir -p {q_code_dir}",
+        f"if [ -d {q_git_dir} ]; then",
+        f"  cd {q_code_dir}",
+        f"  git remote set-url origin {q_git_url}",
+        f"  git fetch --prune --depth {depth} origin {q_branch}",
+        f"  git checkout -B {q_branch} origin/{q_branch}",
+        f"  git reset --hard origin/{q_branch}",
+        "elif [ -e " + q_code_dir + " ] && [ -n \"$(ls -A " + q_code_dir + " 2>/dev/null)\" ]; then",
+        f"  echo 'codeDir exists but is not a Git repository: {code_dir}' >&2",
+        "  exit 2",
+        "else",
+        f"  git clone --depth {depth} --branch {q_branch} {q_git_url} {q_code_dir}",
+        "fi",
+        f"cd {q_code_dir}",
+    ]
+
+    if install_requirements:
+        lines.extend(
+            [
+                f"test -f {q_requirements}",
+                f"{q_python} -m pip install -r {q_requirements} -i {q_pip_index}",
+            ]
+        )
+
+    lines.extend(
+        [
+            f"chmod +x {q_train_sh}",
+            "exec env " + " ".join(values) + " " + q_train_sh,
+        ]
+    )
+
+    return "\n".join(lines)
 
 def coerce_mount_config(value: Any) -> str | None:
     if value is None:
@@ -436,28 +532,6 @@ def build_job_body(client: PAIClient, config: dict[str, Any]) -> tuple[dict[str,
             mounts.append(mount)
             steps.append(f"dataset '{item.get('datasetName')}' -> datasetLocalId={mount['datasetLocalId']}")
         body["dataSet"] = mounts
-
-    if not config.get("storageMountList"):
-        # Defaults are tailored to minimind on cluster 1: dataset is under
-        # /dataset/minimind/, while run artifacts use a unique sibling prefix.
-        run_id = str(config.get("runId") or config.get("jobName")).strip("/")
-        config = {
-            **config,
-            "storageMountList": [
-                {
-                    "storageName": DEFAULT_DATA_STORAGE_NAME,
-                    "fileSystemPath": DEFAULT_DATA_FILE_SYSTEM_PATH,
-                    "mountPath": DEFAULT_DATA_MOUNT_PATH,
-                    "readOnly": True,
-                },
-                {
-                    "storageName": DEFAULT_RUN_STORAGE_NAME,
-                    "fileSystemPath": f"{DEFAULT_RUN_FILE_SYSTEM_PATH_PREFIX}{run_id}/",
-                    "mountPath": DEFAULT_RUN_MOUNT_PATH,
-                    "readOnly": False,
-                },
-            ],
-        }
 
     if not config.get("storageMountList"):
         # Defaults are tailored to minimind on cluster 1: dataset is under
