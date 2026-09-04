@@ -36,6 +36,11 @@ from urllib.parse import quote
 import requests
 import yaml
 
+try:
+    import oss2
+except ImportError as exc:
+    raise PAIError("Missing dependency: oss2. Install it with `pip install oss2==2.19.1`.") from exc
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 DEFAULT_CONFIG = SCRIPT_DIR / "credentials.yaml"
@@ -54,7 +59,7 @@ DEFAULT_RUN_MOUNT_PATH = "/mnt/run"
 # GitHub source defaults. The repository is public, so no credentials are put
 # into the generated PAI command.
 DEFAULT_SOURCE_TYPE = "git"
-DEFAULT_GIT_URL = "ssh://git@code.tars-ai.com:2222/qiu.feng/awsome-training.git"
+DEFAULT_GIT_URL = "https://code.tars-ai.com/qiu.feng/awsome-training.git"
 DEFAULT_GIT_BRANCH = "main"
 DEFAULT_GIT_DEPTH = 1
 DEFAULT_CODE_DIR = "/tmp/minimind/code"
@@ -92,6 +97,49 @@ def load_credentials(config_path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise PAIError(f"Credentials YAML root must be a mapping: {config_path}")
     return value
+
+
+def get_git_token(credentials: dict[str, Any]) -> str | None:
+    git = credentials.get("git") or {}
+    if not isinstance(git, dict):
+        return None
+    token = git.get("token") or git.get("deploy_token")
+    return str(token).strip() if token else None
+
+
+def get_oss_bucket(credentials: dict[str, Any]) -> tuple[oss2.Bucket, str]:
+    oss = credentials.get("oss") or {}
+    if not isinstance(oss, dict):
+        raise PAIError("Credentials YAML must contain an 'oss' mapping.")
+
+    software = oss.get("software") or {}
+    if not isinstance(software, dict):
+        software = {}
+
+    bucket_name = str(software.get("bucket") or oss.get("bucket") or "").strip()
+    endpoint = str(software.get("endpoint") or oss.get("endpoint") or "").strip()
+    access_key_id = str(software.get("access_key_id") or oss.get("access_key_id") or "").strip()
+    access_key_secret = str(software.get("access_key_secret") or oss.get("access_key_secret") or "").strip()
+
+    if not (bucket_name and endpoint and access_key_id and access_key_secret):
+        raise PAIError("OSS credentials are incomplete in infra/credentials.yaml.")
+
+    if not endpoint.startswith(("http://", "https://")):
+        endpoint = f"https://{endpoint}"
+
+    auth = oss2.Auth(access_key_id, access_key_secret)
+    return oss2.Bucket(auth, endpoint, bucket_name), bucket_name
+
+
+def upload_git_token(credentials: dict[str, Any], run_id: str) -> str:
+    token = get_git_token(credentials)
+    if not token:
+        raise PAIError("No Git token found in infra/credentials.yaml under git.token.")
+
+    bucket, bucket_name = get_oss_bucket(credentials)
+    key = f"{DEFAULT_RUN_FILE_SYSTEM_PATH_PREFIX.lstrip('/')}{run_id.strip('/')}/.git_token"
+    bucket.put_object(key, token)
+    return f"oss://{bucket_name}/{key}"
 
 
 class PAIClient:
@@ -377,10 +425,23 @@ def build_train_command(config: dict[str, Any]) -> str:
     q_train_sh = shlex.quote(f"{code_dir.rstrip('/')}/dlc/train.sh")
 
     q_git_dir = shlex.quote(code_dir.rstrip("/") + "/.git")
+    token_file = "/mnt/run/.git_token"
+    askpass_file = "/tmp/git-askpass"
+
     lines = [
         "set -Eeuo pipefail",
         "command -v git >/dev/null",
         f"mkdir -p {q_code_dir}",
+        f"cat > {shlex.quote(askpass_file)} <<'ASKPASS'",
+        "#!/bin/sh",
+        "case \"$1\" in",
+        "  Username*) printf '%s\n' 'oauth2' ;;",
+        f"  Password*) cat {shlex.quote(token_file)} ;;",
+        "esac",
+        "ASKPASS",
+        f"chmod 700 {shlex.quote(askpass_file)}",
+        f"export GIT_ASKPASS={shlex.quote(askpass_file)}",
+        "export GIT_TERMINAL_PROMPT=0",
         f"if [ -d {q_git_dir} ]; then",
         f"  cd {q_code_dir}",
         f"  git remote set-url origin {q_git_url}",
@@ -717,6 +778,16 @@ def main() -> int:
             if args.dry_run:
                 dump({"status": "dry_run", "config": str(args.config), "resolved": steps, "request_body": body})
                 return 0
+
+            source = config.get("source") or {}
+            source_type = str(source.get("type") or DEFAULT_SOURCE_TYPE).strip().lower()
+            git_url = str(source.get("url") or DEFAULT_GIT_URL).strip()
+            if source_type == "git" and "code.tars-ai.com" in git_url:
+                credentials = load_credentials(args.credentials)
+                run_id = str(config.get("runId") or config.get("jobName")).strip("/")
+                token_path = upload_git_token(credentials, run_id)
+                steps.append(f"git token uploaded -> {token_path}")
+
             data, response = client.create_job(body)
             result = {
                 "status": "ok",

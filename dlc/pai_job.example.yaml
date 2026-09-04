@@ -24,12 +24,14 @@ gpuCount: 1
 maxRunTime: 120
 errorMonitor: true
 
-# Pull code from the company-internal GitLab at task startup. The training pod
-# has SSH access to code.tars-ai.com. Use a local code directory: Git pack
-# files are less reliable when placed directly on an OSS/FUSE mount.
+# Pull code from the company-internal GitLab at task startup using HTTPS.
+# The read-only Git token is stored in infra/credentials.yaml and uploaded by
+# pai_submit.py to the job's private OSS run prefix as /mnt/run/.git_token.
+# The generated command reads it through GIT_ASKPASS; the token is never
+# embedded in the PAI command or Git URL.
 source:
   type: git
-  url: ssh://git@code.tars-ai.com:2222/qiu.feng/awsome-training.git
+  url: https://code.tars-ai.com/qiu.feng/awsome-training.git
   branch: main
   depth: 1
   codeDir: /tmp/minimind/code
@@ -53,13 +55,3 @@ train:
 #
 # In PAI, this OSS bucket is registered as file storage id 31 on cluster 1.
 # Mount the dataset prefix read-only and a unique run prefix read-write.
-storageMountList:
-  - storageName: tars-data-platform-software
-    fileSystemPath: /dataset/minimind/
-    mountPath: /mnt/data/
-    readOnly: true
-
-  - storageName: tars-data-platform-software
-    fileSystemPath: /minimind/runs/minimind-pretrain-20260904/
-    mountPath: /mnt/run/
-    readOnly: false
