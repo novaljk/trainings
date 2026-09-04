@@ -56,10 +56,10 @@ train:
 storageMountList:
   - storageName: tars-data-platform-software
     fileSystemPath: /dataset/minimind/
-    mountPath: /mnt/data
+    mountPath: /mnt/data/
     readOnly: true
 
   - storageName: tars-data-platform-software
     fileSystemPath: /minimind/runs/minimind-pretrain-20260904/
-    mountPath: /mnt/run
+    mountPath: /mnt/run/
     readOnly: false

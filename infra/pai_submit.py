@@ -544,9 +544,14 @@ def build_job_body(client: PAIClient, config: dict[str, Any]) -> tuple[dict[str,
         mounts: list[dict[str, Any]] = []
         for item in config["dataSet"]:
             dataset = match_row(dataset_rows, item.get("datasetName"), ["datasetName", "name"])
+            mount_path = str(item["mountPath"]).strip()
+            if not mount_path.startswith("/"):
+                raise PAIError(f"Dataset mountPath must be an absolute Linux path: {mount_path!r}")
+            mount_path = mount_path.rstrip("/") + "/"
+
             mount = {
                 "datasetLocalId": int(dataset.get("id") or dataset.get("datasetLocalId")),
-                "mountPath": item["mountPath"],
+                "mountPath": mount_path,
             }
             if item.get("version") is not None:
                 mount["version"] = item["version"]
@@ -585,10 +590,22 @@ def build_job_body(client: PAIClient, config: dict[str, Any]) -> tuple[dict[str,
         mounts = []
         for item in config["storageMountList"]:
             storage = match_row(storage_rows, item.get("storageName"), ["storageName", "name"])
+            mount_path = str(item["mountPath"]).strip()
+            if not mount_path.startswith("/"):
+                raise PAIError(f"Storage mountPath must be an absolute Linux path: {mount_path!r}")
+            # PAI requires mountPath to start and end with "/".
+            mount_path = mount_path.rstrip("/") + "/"
+
+            file_system_path = str(item["fileSystemPath"]).strip()
+            if not file_system_path.startswith("/"):
+                raise PAIError(f"Storage fileSystemPath must be absolute: {file_system_path!r}")
+            if not file_system_path.endswith("/"):
+                file_system_path += "/"
+
             mount = {
                 "fileStorageId": int(storage.get("id") or storage.get("fileStorageId")),
-                "fileSystemPath": item["fileSystemPath"],
-                "mountPath": item["mountPath"],
+                "fileSystemPath": file_system_path,
+                "mountPath": mount_path,
             }
             if item.get("readOnly") is not None:
                 mount["readOnly"] = bool(item["readOnly"])
