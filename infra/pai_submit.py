@@ -411,7 +411,10 @@ def build_train_command(config: dict[str, Any]) -> str:
         ]
     )
 
-    return "\n".join(lines)
+    # PAI executes the submitted command with /bin/sh (dash on many images).
+    # dash does not support `set -o pipefail`, so force the generated script
+    # through bash while keeping the command as a single PAI command string.
+    return "/bin/bash <<'PAI_BASH'\n" + "\n".join(lines) + "\nPAI_BASH"
 
 def coerce_mount_config(value: Any) -> str | None:
     if value is None:
