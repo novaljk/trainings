@@ -1,0 +1,27 @@
+# VCS and local state
+.git
+.gitignore
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+
+# Dataset data is mounted from OSS, never baked into the image. Keep only the
+# small Python package files required by trainer imports.
+dataset/*
+!dataset/__init__.py
+!dataset/lm_dataset.py
+out
+checkpoints
+**/*.jsonl
+**/*.jsonl.incomplete
+**/*.arrow
+**/*.bin
+**/*.parquet
+**/*.safetensors
+**/*.pth
+**/*.pt
+**/*.ckpt
+
+# Secrets and local job definitions
+infra/credentials.yaml
+dlc/pai_job.yaml

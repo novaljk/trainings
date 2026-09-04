@@ -4,3 +4,16 @@ __pycache__/
 out
 website/
 docs-minimind/
+checkpoints
+infra/credentials.yaml
+dlc/pai_job.yaml
+
+# Keep the dataset package code, but ignore large downloaded dataset files.
+dataset/*
+!dataset/__init__.py
+!dataset/lm_dataset.py
+!dataset/dataset.md
+
+# Local reference-only PAI tool and generated job config.
+infra/pai_tools.py
+dlc/pai_job.yaml

@@ -1,0 +1,53 @@
+# Example TARS PAI job definition for minimind.
+#
+# First use the CLI to discover available names:
+#   python infra/pai_submit.py list-clusters
+#   python infra/pai_submit.py list-images --cluster-name <cluster>
+#   python infra/pai_submit.py list-gpu-types --cluster-id <id>
+#   python infra/pai_submit.py list-storages --cluster-name <cluster>
+#
+# Then copy this file to dlc/pai_job.yaml, fill real names, and run:
+#   python infra/pai_submit.py submit --config dlc/pai_job.yaml --dry-run
+#   python infra/pai_submit.py submit --config dlc/pai_job.yaml
+
+jobName: minimind-pretrain-20260903
+clusterName: 集群1
+# runId: minimind-20260903-001   # optional output run id; defaults to jobName
+priority: 9
+podCount: 1
+imageName: <registered-minimind-image>
+specName: NVIDIA-RTX4090      # Aliyun clusters
+gpuCount: 1
+# cpuCount: 16
+# resourcePoolName: <resource-pool-name>
+# projectName: <project-name>
+maxRunTime: 120
+errorMonitor: true
+
+# The image must be built from this repository. The launcher is fixed at
+# /app/dlc/train.sh inside that image.
+train:
+  stage: pretrain               # pretrain or sft
+  DATA_ROOT: /mnt/data
+  OUT_DIR: /mnt/run/out
+  CKPT_DIR: /mnt/run/checkpoints
+  RESUME: "1"
+  # DATA_PATH: /mnt/data/pretrain_t2t_mini.jsonl
+  # EPOCHS: "2"
+  # BATCH_SIZE: "32"
+
+# The dataset is uploaded to:
+#   oss://tars-data-platform-software/dataset/minimind/
+#
+# In PAI, this OSS bucket is registered as file storage id 31 on cluster 1.
+# Mount the dataset prefix read-only and a unique run prefix read-write.
+storageMountList:
+  - storageName: tars-data-platform-software
+    fileSystemPath: /dataset/minimind/
+    mountPath: /mnt/data
+    readOnly: true
+
+  - storageName: tars-data-platform-software
+    fileSystemPath: /minimind/runs/<job-name>/
+    mountPath: /mnt/run
+    readOnly: false
