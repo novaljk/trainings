@@ -10,7 +10,7 @@
 #   python infra/pai_submit.py submit --config dlc/pai_job.yaml --dry-run
 #   python infra/pai_submit.py submit --config dlc/pai_job.yaml
 
-jobName: minimind-pretrain-20260904
+jobName: minimind-pretrain-20260904-5
 clusterName: 集群1
 # runId: minimind-20260904-001   # optional output run id; defaults to jobName
 priority: 9
@@ -24,15 +24,15 @@ gpuCount: 1
 maxRunTime: 120
 errorMonitor: true
 
-# Pull code from GitHub at task startup. The repository is public, so no Git
-# credentials are embedded in the PAI command. The code is cached under the
-# writable run mount and reset to origin/main on every restart.
+# Pull code from the company-internal GitLab at task startup. The training pod
+# has SSH access to code.tars-ai.com. Use a local code directory: Git pack
+# files are less reliable when placed directly on an OSS/FUSE mount.
 source:
   type: git
-  url: https://github.com/novaljk/trainings.git
+  url: ssh://git@code.tars-ai.com:2222/qiu.feng/awsome-training.git
   branch: main
   depth: 1
-  codeDir: /mnt/run/code
+  codeDir: /tmp/minimind/code
   python: python3
   installRequirements: true
   requirementsPath: requirements.txt

@@ -6,7 +6,7 @@ CLI does not depend on tars_platform; it authenticates directly with TARS and
 resolves human-readable names in a job YAML to PAI ids.
 
 Default code source:
-    https://github.com/novaljk/trainings.git (main) -> /mnt/run/code
+    ssh://git@code.tars-ai.com:2222/qiu.feng/awsome-training.git (main) -> /tmp/minimind/code
 
 Default dataset/output mounts:
     dataset: oss://tars-data-platform-software/dataset/minimind/ -> /mnt/data
@@ -54,10 +54,10 @@ DEFAULT_RUN_MOUNT_PATH = "/mnt/run"
 # GitHub source defaults. The repository is public, so no credentials are put
 # into the generated PAI command.
 DEFAULT_SOURCE_TYPE = "git"
-DEFAULT_GIT_URL = "https://github.com/novaljk/trainings.git"
+DEFAULT_GIT_URL = "ssh://git@code.tars-ai.com:2222/qiu.feng/awsome-training.git"
 DEFAULT_GIT_BRANCH = "main"
 DEFAULT_GIT_DEPTH = 1
-DEFAULT_CODE_DIR = "/mnt/run/code"
+DEFAULT_CODE_DIR = "/tmp/minimind/code"
 DEFAULT_PYTHON = "python3"
 DEFAULT_PIP_INDEX_URL = "https://mirrors.aliyun.com/pypi/simple"
 
